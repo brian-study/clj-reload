@@ -66,6 +66,12 @@
           :else
           (recur body' requires))))))
 
+(def ^:dynamic *auto-keep*
+  "Set of form tags (symbols) to automatically keep across reloads.
+   E.g. #{'defprotocol 'defrecord 'deftype} to preserve protocol/record
+   class identity during development reloads."
+  #{})
+
 (defn read-file
   "Returns {<symbol> NS} or Exception"
   ([file]
@@ -108,6 +114,7 @@
         
          (or
            (= 'defonce tag)
+           (contains? *auto-keep* tag)
            (:clj-reload/keep (meta form))
            (and
              (list? form)

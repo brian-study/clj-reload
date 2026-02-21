@@ -27,6 +27,13 @@
     (str/replace "-" "_")
     (str "." sym)))
 
+(defn form-unchanged?
+  "Returns true if the keep entry's form has not changed since last scan.
+   When :prev-form is absent (first scan), returns true to allow keeping."
+  [keep]
+  (let [{:keys [form prev-form]} keep]
+    (or (nil? prev-form) (= prev-form form))))
+
 (defn stash-ns []
   (or
     (find-ns 'clj-reload.stash)
@@ -48,10 +55,11 @@
          "(def " (meta-str var) sym " @#'clj-reload.stash/" sym ")")))})
 
 (def keep-methods-deftype
-  {:resolve 
+  {:resolve
    (fn [ns sym keep]
-     (when-some [ctor (resolve (symbol (name ns) (str "->" sym)))]
-       {:ctor ctor}))
+     (when (form-unchanged? keep)
+       (when-some [ctor (resolve (symbol (name ns) (str "->" sym)))]
+         {:ctor ctor})))
    
    :patch
    (fn [ns sym keep]
@@ -62,12 +70,13 @@
          "(def " (meta-str ctor) "->" sym " clj-reload.stash/->" sym ")")))})
 
 (def keep-methods-defrecord
-  {:resolve 
+  {:resolve
    (fn [ns sym keep]
-     (when-some [ctor (resolve (symbol (name ns) (str "->" sym)))]
-       (when-some [map-ctor (resolve (symbol (name ns) (str "map->" sym)))]
-         {:ctor ctor
-          :map-ctor map-ctor})))
+     (when (form-unchanged? keep)
+       (when-some [ctor (resolve (symbol (name ns) (str "->" sym)))]
+         (when-some [map-ctor (resolve (symbol (name ns) (str "map->" sym)))]
+           {:ctor ctor
+            :map-ctor map-ctor}))))
    
    :patch
    (fn [ns sym keep]
@@ -89,12 +98,13 @@
     (alter-var-root (:var proto) assoc :method-builders mb')))
 
 (def keep-methods-defprotocol
-  {:resolve 
+  {:resolve
    (fn [ns sym keep]
-     (when-some [proto (resolve (symbol (name ns) (name sym)))]
-       {:proto   proto
-        :methods (util/for-map [[method-var _] (:method-builders @proto)]
-                   [(.-sym ^Var method-var) method-var])}))
+     (when (form-unchanged? keep)
+       (when-some [proto (resolve (symbol (name ns) (name sym)))]
+         {:proto   proto
+          :methods (util/for-map [[method-var _] (:method-builders @proto)]
+                     [(.-sym ^Var method-var) method-var])})))
    
    :patch
    (fn [ns sym keep]

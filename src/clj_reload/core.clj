@@ -11,6 +11,9 @@
 ;            :files       #"<regex>"           - which files to scan, defaults to #".*\.cljc?"
 ;            :no-unload   #{<symbol> ...}      - list of nses to skip unload
 ;            :no-reload   #{<symbol> ...}      - list of nses to skip reload
+;            :auto-keep   #{<symbol> ...}      - form tags to auto-keep across reloads
+;                                                e.g. #{'defprotocol 'defrecord 'deftype}
+;                                                preserves class identity without annotations
 ;            :reload-hook <symbol>             - if function with this name exists,
 ;                                                it will be called after reloading.
 ;                                                default: after-ns-reload
@@ -82,15 +85,16 @@
                            (filter #(re-matches (:files *config*) (util/file-name %))))
 
         [files-modified
-         files-broken]   (reduce
-                           (fn [[modified broken] file]
-                             (if (<= (util/last-modified file) since)
-                               [modified broken]
-                               (let [res (parse/read-file file)]
-                                 (if (util/throwable? res)
-                                   [modified (assoc broken file res)]
-                                   [(assoc modified file res) broken]))))
-                           [{} {}] files-now)
+         files-broken]   (binding [parse/*auto-keep* (or (:auto-keep *config*) #{})]
+                           (reduce
+                             (fn [[modified broken] file]
+                               (if (<= (util/last-modified file) since)
+                                 [modified broken]
+                                 (let [res (parse/read-file file)]
+                                   (if (util/throwable? res)
+                                     [modified (assoc broken file res)]
+                                     [(assoc modified file res) broken]))))
+                             [{} {}] files-now))
 
         files-deleted    (reduce disj (set (keys files-before)) files-now)
         
@@ -145,12 +149,19 @@
 
 (defn init
   "Options:
-   
+
    :dirs        :: [<string> ...]  - where to look for files
    :files       :: #\"<regex>\"    - which files to scan, defaults to #\".*\\\\.cljc?\"
    :no-reload   :: #{<symbol> ...} - list of namespaces to skip reload entirely
    :no-unload   :: #{<symbol> ...} - list of namespaces to skip unload only.
-                                     These will be loaded “on top” of previous state
+                                     These will be loaded \"on top\" of previous state
+   :auto-keep   :: #{<symbol> ...} - form tags to automatically preserve across reloads.
+                                     e.g. #{'defprotocol 'defrecord 'deftype}
+                                     Prevents protocol/record class identity drift
+                                     without requiring ^:clj-reload/keep annotations.
+                                     When a definition actually changes, the keep is
+                                     skipped and the new definition takes effect.
+                                     Default: #{}
    :unload-hook :: <symbol>        - if function with this name exists in a namespace,
                                      it will be called before unloading. Default: 'before-ns-unload
    :reload-hook :: <symbol>        - if function with this name exists in a namespace,
@@ -174,6 +185,7 @@
                :files       files
                :no-unload   (set (:no-unload opts))
                :no-reload   (set (:no-reload opts))
+               :auto-keep   (set (:auto-keep opts))
                :reload-hook (:reload-hook opts 'after-ns-reload)
                :unload-hook (:unload-hook opts 'before-ns-unload)
                :output      (:output opts :quieter)}))
@@ -199,7 +211,10 @@
 (defn carry-keeps [from to]
   (util/for-map [[ns-sym ns] to]
     [ns-sym (assoc ns :keep
-              (merge-with merge
+              (merge-with
+                (fn [old-keep new-keep]
+                  (-> (merge old-keep new-keep)
+                      (assoc :prev-form (:form old-keep))))
                 (get-in from [ns-sym :keep])
                 (:keep ns)))]))
 
