@@ -3,6 +3,6 @@
  :aliases
  {:dev
   {:jvm-opts ["-ea" "-Duser.language=en" "-Duser.country=US" "-Dfile.encoding=UTF-8"]
-   :extra-paths ["dev" "test" "fixtures/core_test" "fixtures/keep_test"]
+   :extra-paths ["dev" "test" "fixtures/core_test" "fixtures/keep_test" "fixtures/auto_keep_test"]
    :extra-deps 
    {org.clojure/tools.namespace {:mvn/version "1.5.0"}}}}}
